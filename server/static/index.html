@@ -1,0 +1,57 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Smart Breaker Dashboard</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+body{font-family:Arial,sans-serif;margin:0;background:#f4f6f8;color:#1b2430}
+header{background:#1f3864;color:#fff;padding:14px 22px;font-size:20px}
+main{padding:18px 22px;max-width:1100px;margin:auto}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.card{background:#fff;border-radius:8px;padding:14px;box-shadow:0 1px 3px #0002}
+.card b{display:block;font-size:26px;margin-top:6px}
+.closed{color:#1a7f37}.open{color:#c62828}
+button{padding:8px 14px;border:0;border-radius:6px;background:#1f3864;color:#fff;cursor:pointer;margin-right:6px}
+button.alt{background:#555}input{padding:6px;width:70px}
+.panel{background:#fff;border-radius:8px;padding:14px;margin-top:14px;box-shadow:0 1px 3px #0002}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:4px 6px;border-bottom:1px solid #eee;text-align:left}
+</style></head><body>
+<header>Smart Breaker Monitor - Electrical Parameters &amp; Endurance</header>
+<main>
+<div class="cards">
+ <div class="card">Breaker state<b id="state">-</b></div>
+ <div class="card">Current (A)<b id="cur">-</b></div>
+ <div class="card">Voltage (V)<b id="vol">-</b></div>
+ <div class="card">Operations<b id="ops">-</b></div>
+ <div class="card">Overload trips<b id="trips">-</b></div>
+</div>
+<div class="panel"><canvas id="chart" height="90"></canvas></div>
+<div class="panel">
+ <button onclick="cmd('close')">Close breaker</button><button class="alt" onclick="cmd('open')">Open breaker</button>
+ &nbsp; Endurance test: cycles <input id="cy" value="20"> interval(s) <input id="iv" value="2">
+ <button onclick="startTest()">Start</button><button class="alt" onclick="post('/api/endurance/stop')">Stop</button>
+ <a href="/api/export.csv">Download CSV</a>
+ <div id="tst" style="margin-top:8px"></div>
+</div>
+<div class="panel"><b>Event log</b><table id="ev"></table></div>
+</main>
+<script>
+const ch=new Chart(document.getElementById('chart'),{type:'line',data:{labels:[],datasets:[
+ {label:'Current (A)',data:[],borderColor:'#c62828',tension:.2,yAxisID:'y'},
+ {label:'Voltage (V)',data:[],borderColor:'#1f3864',tension:.2,yAxisID:'y1'}]},
+ options:{animation:false,scales:{y:{position:'left'},y1:{position:'right',grid:{drawOnChartArea:false}}}}});
+const post=(u,b)=>fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});
+const cmd=s=>post('/api/command',{state:s});
+const startTest=()=>post('/api/endurance/start',{cycles:+cy.value,interval_s:+iv.value});
+async function tick(){
+ const h=await (await fetch('/api/history?limit=60')).json();
+ if(h.length){const l=h[h.length-1];
+  state.textContent=l.state;state.className=l.state;cur.textContent=l.current.toFixed(2);
+  vol.textContent=l.voltage.toFixed(1);ops.textContent=l.op_count;trips.textContent=l.trips;
+  ch.data.labels=h.map(r=>new Date(r.ts*1000).toLocaleTimeString());
+  ch.data.datasets[0].data=h.map(r=>r.current);ch.data.datasets[1].data=h.map(r=>r.voltage);ch.update();}
+ const t=await (await fetch('/api/endurance')).json();
+ tst.textContent=t.running?`Endurance test running: ${t.done}/${t.cycles} cycles`:(t.done?`Last test: ${t.done}/${t.cycles} cycles completed`:'No test run yet');
+ const e=await (await fetch('/api/events?limit=8')).json();
+ ev.innerHTML='<tr><th>Time</th><th>Event</th><th>Detail</th></tr>'+e.map(x=>`<tr><td>${new Date(x.ts*1000).toLocaleTimeString()}</td><td>${x.kind}</td><td>${x.detail}</td></tr>`).join('');
+}
+setInterval(tick,1000);tick();
+</script></body></html>
